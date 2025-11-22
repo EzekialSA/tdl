@@ -66,6 +66,9 @@ func NewDownload() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Continue, _continue, false, "continue the last download directly")
 	cmd.Flags().BoolVar(&opts.Restart, restart, false, "restart the last download directly")
 
+	// output mode flags
+	cmd.Flags().BoolVar(&opts.NoProgress, consts.FlagNoProgress, false, "disable interactive progress bars (use simple logging mode)")
+
 	// serve flags
 	cmd.Flags().BoolVar(&opts.Serve, "serve", false, "serve the media files as a http server instead of downloading them with built-in downloader")
 	cmd.Flags().IntVar(&opts.Port, "port", 8080, "http server port")

@@ -16,4 +16,5 @@ const (
 	FlagDlTemplate       = "template"
 	FlagLog              = "log"
 	FlagLogOutput        = "log-output"
+	FlagNoProgress       = "no-progress"
 )

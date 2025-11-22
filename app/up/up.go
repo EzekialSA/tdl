@@ -15,6 +15,7 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/peers"
+	pw "github.com/jedib0t/go-pretty/v6/progress"
 	"github.com/spf13/viper"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -88,7 +89,14 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		return errors.Wrap(err, "get caption")
 	}
 
-	upProgress := prog.New(utils.Byte.FormatBinaryBytes)
+	// Choose progress writer based on --no-progress flag
+	var upProgress pw.Writer
+	if viper.GetBool(consts.FlagNoProgress) {
+		upProgress = prog.NewSimple(utils.Byte.FormatBinaryBytes)
+	} else {
+		upProgress = prog.New(utils.Byte.FormatBinaryBytes)
+	}
+
 	upProgress.SetNumTrackersExpected(len(files))
 	prog.EnablePS(ctx, upProgress)
 

@@ -78,7 +78,14 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		return errors.Wrap(err, "resolve edit")
 	}
 
-	fwProgress := prog.New(pw.FormatNumber)
+	// Choose progress writer based on --no-progress flag
+	var fwProgress pw.Writer
+	if viper.GetBool(consts.FlagNoProgress) {
+		fwProgress = prog.NewSimple(pw.FormatNumber)
+	} else {
+		fwProgress = prog.New(pw.FormatNumber)
+	}
+
 	fwProgress.SetNumTrackersExpected(totalMessages(dialogs))
 	prog.EnablePS(ctx, fwProgress)
 

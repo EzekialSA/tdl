@@ -6,10 +6,12 @@ import (
 
 	"github.com/gotd/td/telegram"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/iyear/tdl/app/up"
 	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
+	"github.com/iyear/tdl/pkg/consts"
 )
 
 func NewUpload() *cobra.Command {
@@ -48,6 +50,10 @@ func NewUpload() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Remove, "rm", false, "remove the uploaded files after uploading")
 	cmd.Flags().BoolVar(&opts.Photo, "photo", false, "upload the image as a photo instead of a file")
 	cmd.Flags().StringVar(&opts.Caption, "caption", `"<code>"+FileName+"</code> - <code>"+MIME+"</code>"`, "caption for the uploaded media")
+
+	// output mode flags
+	cmd.Flags().Bool(consts.FlagNoProgress, false, "disable interactive progress bars (use simple logging mode)")
+	_ = viper.BindPFlag(consts.FlagNoProgress, cmd.Flags().Lookup(consts.FlagNoProgress))
 
 	// completion and validation
 	_ = cmd.MarkFlagRequired(path)
