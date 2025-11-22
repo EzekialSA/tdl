@@ -88,11 +88,9 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
 
 	// Choose progress writer based on --no-progress flag
-	logctx.From(ctx).Info("Progress mode check",
-		zap.Bool("no-progress-flag", opts.NoProgress))
 	var dlProgress pw.Writer
 	if opts.NoProgress {
-		color.Yellow("Using simple progress mode (--no-progress enabled)")
+		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
 		dlProgress = prog.NewSimple(utils.Byte.FormatBinaryBytes)
 	} else {
 		dlProgress = prog.New(utils.Byte.FormatBinaryBytes)
