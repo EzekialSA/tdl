@@ -16,6 +16,15 @@ const (
 	OutputBoth   OutputMode = "both"
 )
 
+// noSyncWriter wraps a WriteSyncer and makes Sync a no-op
+type noSyncWriter struct {
+	zapcore.WriteSyncer
+}
+
+func (w noSyncWriter) Sync() error {
+	return nil
+}
+
 func New(level zapcore.LevelEnabler, path string) *zap.Logger {
 	return NewWithOutput(level, path, OutputFile)
 }
@@ -43,7 +52,8 @@ func NewWithOutput(level zapcore.LevelEnabler, path string, output OutputMode) *
 
 	// Add stderr output if needed
 	if output == OutputStderr || output == OutputBoth {
-		stderrWriter := zapcore.Lock(os.Stderr)
+		// Wrap stderr with noSyncWriter to prevent sync errors on Windows
+		stderrWriter := noSyncWriter{zapcore.Lock(os.Stderr)}
 		cores = append(cores, zapcore.NewCore(zapcore.NewConsoleEncoder(config), stderrWriter, level))
 	}
 
