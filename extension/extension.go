@@ -32,6 +32,7 @@ type Env struct {
 	Pool      int64  `json:"pool"`
 	Debug     bool   `json:"debug"`
 	LogPath   string `json:"log_path"`
+	LogOutput string `json:"log_output"`
 }
 
 type Options struct {
@@ -125,7 +126,11 @@ func buildExtension(ctx context.Context, o Options) (*Extension, *telegram.Clien
 		if logPath == "" {
 			logPath = filepath.Join(env.DataDir, "log", "latest.log")
 		}
-		o.Logger = logutil.New(level, logPath)
+		logOutput := logutil.OutputMode(env.LogOutput)
+		if logOutput == "" {
+			logOutput = logutil.OutputFile
+		}
+		o.Logger = logutil.NewWithOutput(level, logPath, logOutput)
 	}
 
 	// save logger to context
