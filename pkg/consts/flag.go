@@ -5,6 +5,7 @@ const (
 	FlagProxy            = "proxy"
 	FlagNamespace        = "ns"
 	FlagDebug            = "debug"
+	FlagLogLevel         = "log-level"
 	FlagPartSize         = "size" // Deprecated: all part size should be set to maximum by default
 	FlagThreads          = "threads"
 	FlagLimit            = "limit"

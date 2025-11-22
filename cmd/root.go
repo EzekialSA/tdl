@@ -16,6 +16,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"golang.org/x/net/proxy"
 
 	"github.com/iyear/tdl/core/logctx"
@@ -72,8 +73,14 @@ func New() *cobra.Command {
 		SilenceUsage:  true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			// init logger
-			debug, level := viper.GetBool(consts.FlagDebug), zap.InfoLevel
-			if debug {
+			level := zap.InfoLevel
+			// Handle --log-level flag
+			if logLevelStr := viper.GetString(consts.FlagLogLevel); logLevelStr != "" {
+				if parsedLevel, err := zapcore.ParseLevel(logLevelStr); err == nil {
+					level = parsedLevel
+				}
+			} else if viper.GetBool(consts.FlagDebug) {
+				// Fall back to --debug flag for backward compatibility
 				level = zap.DebugLevel
 			}
 			logPath := viper.GetString(consts.FlagLog)
@@ -157,6 +164,8 @@ func New() *cobra.Command {
 	cmd.PersistentFlags().String(consts.FlagProxy, "", "proxy address, format: protocol://username:password@host:port")
 	cmd.PersistentFlags().StringP(consts.FlagNamespace, "n", "default", "namespace for Telegram session")
 	cmd.PersistentFlags().Bool(consts.FlagDebug, false, "enable debug mode")
+	_ = cmd.PersistentFlags().MarkDeprecated(consts.FlagDebug, "use --log-level debug instead")
+	cmd.PersistentFlags().String(consts.FlagLogLevel, "", "log level: debug, info, warn, error, dpanic, panic, fatal")
 	cmd.PersistentFlags().String(consts.FlagLog, filepath.Join(consts.LogPath, "latest.log"), "log file path")
 	cmd.PersistentFlags().String(consts.FlagLogOutput, "file", "log output destination: file, stderr, or both")
 
