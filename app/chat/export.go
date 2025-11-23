@@ -40,6 +40,7 @@ type ExportOptions struct {
 	WithContent bool
 	Raw         bool
 	All         bool
+	NoProgress  bool
 }
 
 type Message struct {
@@ -92,7 +93,13 @@ func Export(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts E
 
 	color.Blue("Type: %s | Input: %v", opts.Type, opts.Input)
 
-	pw := prog.New(progress.FormatNumber)
+	var pw progress.Writer
+	if opts.NoProgress {
+		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
+		pw = prog.NewSimple(progress.FormatNumber)
+	} else {
+		pw = prog.New(progress.FormatNumber)
+	}
 	pw.SetUpdateFrequency(200 * time.Millisecond)
 	pw.Style().Visibility.TrackerOverall = false
 	pw.Style().Visibility.ETA = false

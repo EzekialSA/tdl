@@ -108,6 +108,7 @@ func NewChatExport() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.WithContent, "with-content", false, "export with message content")
 	cmd.Flags().BoolVar(&opts.Raw, "raw", false, "export raw message struct of Telegram MTProto API, useful for debugging")
 	cmd.Flags().BoolVar(&opts.All, "all", false, "export all messages including non-media messages, but still affected by filter and type flag")
+	cmd.Flags().BoolVar(&opts.NoProgress, "no-progress", false, "disable fancy progress, use simple progress mode")
 
 	// completion and validation
 	_ = cmd.RegisterFlagCompletionFunc(input, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
@@ -147,5 +148,6 @@ func NewChatUsers() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Output, "output", "o", "tdl-users.json", "output JSON file path")
 	cmd.Flags().StringVarP(&opts.Chat, "chat", "c", "", "domain id (channels, supergroups, etc.)")
 	cmd.Flags().BoolVar(&opts.Raw, "raw", false, "export raw message struct of Telegram MTProto API, useful for debugging")
+	cmd.Flags().BoolVar(&opts.NoProgress, "no-progress", false, "disable fancy progress, use simple progress mode")
 	return cmd
 }

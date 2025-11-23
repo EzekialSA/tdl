@@ -18,6 +18,7 @@ import (
 	"github.com/jedib0t/go-pretty/v6/progress"
 	"go.uber.org/multierr"
 
+	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/util/tutil"
 	"github.com/iyear/tdl/pkg/prog"
@@ -27,6 +28,7 @@ type UsersOptions struct {
 	Chat   string
 	Output string
 	Raw    bool
+	NoProgress bool
 }
 
 type User struct {
@@ -69,7 +71,13 @@ func Users(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Us
 	defer enc.ObjEnd()
 	enc.Field("id", func(e *jx.Encoder) { e.Int64(peer.ID()) })
 
-	pw := prog.New(progress.FormatNumber)
+	var pw progress.Writer
+	if opts.NoProgress {
+		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
+		pw = prog.NewSimple(progress.FormatNumber)
+	} else {
+		pw = prog.New(progress.FormatNumber)
+	}
 	pw.SetUpdateFrequency(200 * time.Millisecond)
 	pw.Style().Visibility.TrackerOverall = false
 	pw.Style().Visibility.ETA = true
