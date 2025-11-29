@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/expr-lang/expr"
@@ -12,10 +11,8 @@ import (
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/message/peer"
 	"github.com/gotd/td/telegram/peers"
-	"github.com/gotd/td/telegram/query"
 	"github.com/gotd/td/telegram/query/dialogs"
 	"github.com/gotd/td/tg"
-	"github.com/mattn/go-runewidth"
 	"go.uber.org/zap"
 
 	"github.com/iyear/tdl/core/logctx"
@@ -59,10 +56,6 @@ type ListOptions struct {
 func List(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts ListOptions) error {
 	log := logctx.From(ctx)
 
-	// align output
-	runewidth.EastAsianWidth = false
-	runewidth.DefaultCondition.EastAsianWidth = false
-
 	// output available fields
 	if opts.Filter == "-" {
 		fg := texpr.NewFieldsGetter(nil)
@@ -82,31 +75,189 @@ func List(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Lis
 
 	// Manually iterate through dialogs to handle errors gracefully
 	// This allows us to skip problematic dialogs (deleted/inaccessible channels)
-	// rather than failing completely when ExtractPeer fails
+	// rather than failing completely when ExtractPeer fails.
+	// We can't use query.GetDialogs() iterator because it fails when trying to
+	// extract peers for pagination offsets. We use manual pagination instead.
 	var allDialogs []dialogs.Elem
 	var skipped int
+	var nonDialogCount int // Count of DialogFolder or other non-Dialog types
 
-	iter := query.GetDialogs(c.API()).BatchSize(100).Iter()
-	for iter.Next(ctx) {
-		elem := iter.Value()
+	// Accumulate entities and messages across all batches
+	globalUserMap := make(map[int64]*tg.User)
+	globalChatMap := make(map[int64]*tg.Chat)
+	globalChannelMap := make(map[int64]*tg.Channel)
+	globalMessageMap := make(map[int]tg.NotEmptyMessage)
+	allRawDialogs := make([]*tg.Dialog, 0)
 
-		// Verify we can extract the peer before adding to results
-		// This is where the original panic occurred - when ExtractPeer fails
-		_, err := elem.Entities.ExtractPeer(elem.Dialog.GetPeer())
+	// Pagination state
+	offsetID := 0
+	offsetDate := 0
+	const batchSize = 100
+	batchNum := 0
+
+	for {
+		// Use the raw API with pagination
+		apiResult, err := c.API().MessagesGetDialogs(ctx, &tg.MessagesGetDialogsRequest{
+			OffsetDate: offsetDate,
+			OffsetID:   offsetID,
+			OffsetPeer: &tg.InputPeerEmpty{}, // Use empty peer to avoid extraction issues
+			Limit:      batchSize,
+		})
 		if err != nil {
-			// Skip dialogs with missing/invalid peers
+			return fmt.Errorf("failed to get dialogs: %w", err)
+		}
+
+		var (
+			dialogsSlice []tg.DialogClass
+			messages     []tg.MessageClass
+			users        []tg.UserClass
+			chats        []tg.ChatClass
+			totalCount   int // Total number of dialogs available
+		)
+
+		switch d := apiResult.(type) {
+		case *tg.MessagesDialogs:
+			// Complete list of dialogs (all fetched in one call)
+			dialogsSlice = d.Dialogs
+			messages = d.Messages
+			users = d.Users
+			chats = d.Chats
+			totalCount = len(d.Dialogs)
+		case *tg.MessagesDialogsSlice:
+			// Partial list (pagination needed)
+			dialogsSlice = d.Dialogs
+			messages = d.Messages
+			users = d.Users
+			chats = d.Chats
+			totalCount = d.Count // Total available dialogs from API
+		case *tg.MessagesDialogsNotModified:
+			// No more dialogs
+			log.Debug("received dialogsNotModified, ending pagination", zap.Int("batch", batchNum))
+			return nil
+		default:
+			return fmt.Errorf("unexpected dialogs type: %T", apiResult)
+		}
+
+		if len(dialogsSlice) == 0 {
+			log.Debug("no more dialogs, ending pagination", zap.Int("batch", batchNum))
+			break
+		}
+
+		batchNum++
+		log.Info("fetched dialog batch",
+			zap.Int("batch_num", batchNum),
+			zap.Int("batch_size", len(dialogsSlice)),
+			zap.Int("total_count", totalCount),
+			zap.Int("fetched_so_far", len(allRawDialogs)+len(dialogsSlice)),
+			zap.Int("messages", len(messages)),
+			zap.Int("users", len(users)),
+			zap.Int("chats", len(chats)),
+			zap.Int("offset_id", offsetID),
+			zap.Int("offset_date", offsetDate))
+
+		// Accumulate users into global map
+		for _, u := range users {
+			if user, ok := u.(*tg.User); ok {
+				globalUserMap[user.ID] = user
+			}
+		}
+
+		// Accumulate chats into global map
+		for _, c := range chats {
+			switch chat := c.(type) {
+			case *tg.Chat:
+				globalChatMap[chat.ID] = chat
+			case *tg.Channel:
+				globalChannelMap[chat.ID] = chat
+			}
+		}
+
+		// Accumulate messages into global map
+		for _, msg := range messages {
+			if m, ok := msg.AsNotEmpty(); ok {
+				globalMessageMap[m.GetID()] = m
+			}
+		}
+
+		// Store raw dialogs for later processing
+		for _, d := range dialogsSlice {
+			if dialog, ok := d.(*tg.Dialog); ok {
+				allRawDialogs = append(allRawDialogs, dialog)
+			} else {
+				// Track non-Dialog types (e.g., DialogFolder)
+				nonDialogCount++
+				log.Debug("skipping non-Dialog type",
+					zap.String("type", fmt.Sprintf("%T", d)))
+			}
+		}
+
+		// Update pagination offsets from the last dialog's top message
+		// We need to use the dialog's TopMessage, not the last message in the messages array
+		// because Telegram's pagination can return duplicate messages
+		if len(allRawDialogs) > 0 {
+			lastDialog := allRawDialogs[len(allRawDialogs)-1]
+			if msg, ok := globalMessageMap[lastDialog.TopMessage]; ok {
+				offsetID = msg.GetID()
+				offsetDate = msg.GetDate()
+				log.Debug("updated pagination offsets from last dialog",
+					zap.Int("new_offset_id", offsetID),
+					zap.Int("new_offset_date", offsetDate),
+					zap.Int("dialog_count", len(allRawDialogs)))
+			}
+		}
+
+		// Continue fetching until we have all dialogs
+		// Primary stopping condition: we've fetched all dialogs according to totalCount
+		if totalCount > 0 && len(allRawDialogs) >= totalCount {
+			log.Info("fetched all dialogs according to total count",
+				zap.Int("total_fetched", len(allRawDialogs)),
+				zap.Int("total_count_from_api", totalCount))
+			break
+		}
+
+		// Fallback stopping condition: if we got 0 dialogs in this batch
+		// (partial batches can occur in the middle due to Telegram's pagination quirks)
+		if len(dialogsSlice) == 0 {
+			log.Info("received empty batch, pagination complete",
+				zap.Int("total_fetched", len(allRawDialogs)),
+				zap.Int("total_count_from_api", totalCount))
+			break
+		}
+	} // Build global entities from accumulated data
+	entities := peer.NewEntities(globalUserMap, globalChatMap, globalChannelMap)
+
+	// Now process all collected dialogs with the complete global entities
+	for _, dialog := range allRawDialogs {
+		// Try to extract the peer
+		inputPeer, err := entities.ExtractPeer(dialog.Peer)
+		if err != nil {
+			// Skip dialogs with missing/invalid peers (deleted channels, etc.)
+			var peerID int64
+			switch p := dialog.Peer.(type) {
+			case *tg.PeerUser:
+				peerID = p.UserID
+			case *tg.PeerChat:
+				peerID = p.ChatID
+			case *tg.PeerChannel:
+				peerID = p.ChannelID
+			}
 			log.Warn("skipping dialog with invalid peer",
-				zap.String("peer_type", fmt.Sprintf("%T", elem.Dialog.GetPeer())),
+				zap.Int64("peer_id", peerID),
+				zap.String("peer_type", fmt.Sprintf("%T", dialog.Peer)),
 				zap.Error(err))
 			skipped++
 			continue
 		}
 
-		allDialogs = append(allDialogs, elem)
-	}
+		// Get the last message for this dialog
+		lastMsg := globalMessageMap[dialog.TopMessage]
 
-	if err := iter.Err(); err != nil {
-		return fmt.Errorf("failed to iterate dialogs: %w", err)
+		allDialogs = append(allDialogs, dialogs.Elem{
+			Peer:     inputPeer,
+			Entities: entities,
+			Dialog:   dialog,
+			Last:     lastMsg,
+		})
 	}
 
 	if skipped > 0 {
@@ -175,11 +326,13 @@ func List(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Lis
 		zap.Int("blocked", blockedCount),
 		zap.Int("nil_dialogs", nilCount),
 		zap.Int("processed", processedCount),
+		zap.Int("skipped_invalid_peer", skipped),
+		zap.Int("non_dialog_types", nonDialogCount),
 		zap.Int("final_result", len(result)))
 
 	switch opts.Output {
 	case ListOutputTable:
-		printTable(result)
+		printTable(log, result)
 	case ListOutputJson:
 		bytes, err := json.MarshalIndent(result, "", "\t")
 		if err != nil {
@@ -194,31 +347,43 @@ func List(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Lis
 	return nil
 }
 
-func printTable(result []*Dialog) {
-	fmt.Printf("%s %s %s %s %s\n",
-		trunc("ID", 10),
-		trunc("Type", 8),
-		trunc("VisibleName", 20),
-		trunc("Username", 20),
+func printTable(log *zap.Logger, result []*Dialog) {
+	// Print header
+	fmt.Printf("%s\t%s\t%s\t%s\t%s\n",
+		"ID",
+		"Type",
+		"VisibleName",
+		"Username",
 		"Topics")
 
-	for _, r := range result {
-		fmt.Printf("%s %s %s %s %s\n",
-			trunc(strconv.FormatInt(r.ID, 10), 10),
-			trunc(r.Type, 8),
-			trunc(r.VisibleName, 20),
-			trunc(r.Username, 20),
+	for i, r := range result {
+		rowNum := i + 1
+		log.Debug("printing table row",
+			zap.Int("row", rowNum),
+			zap.Int64("id", r.ID),
+			zap.String("type", r.Type),
+			zap.String("visible_name", r.VisibleName),
+			zap.String("username", r.Username),
+			zap.Int("topics_count", len(r.Topics)))
+
+		visibleName := r.VisibleName
+		if visibleName == "" {
+			visibleName = "-"
+		}
+		username := r.Username
+		if username == "" {
+			username = "-"
+		}
+
+		fmt.Printf("%d\t%s\t%s\t%s\t%s\n",
+			r.ID,
+			r.Type,
+			visibleName,
+			username,
 			topicsString(r.Topics))
 	}
-}
 
-func trunc(s string, len int) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		s = "-"
-	}
-
-	return runewidth.FillRight(runewidth.Truncate(s, len, "..."), len)
+	log.Info("table printing complete", zap.Int("total_rows", len(result)))
 }
 
 func topicsString(topics []Topic) string {
