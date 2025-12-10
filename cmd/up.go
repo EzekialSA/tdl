@@ -10,6 +10,7 @@ import (
 	"github.com/iyear/tdl/app/up"
 	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
+	"github.com/iyear/tdl/pkg/consts"
 )
 
 func NewUpload() *cobra.Command {
@@ -48,6 +49,9 @@ func NewUpload() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Remove, "rm", false, "remove the uploaded files after uploading")
 	cmd.Flags().BoolVar(&opts.Photo, "photo", false, "upload the image as a photo instead of a file")
 	cmd.Flags().StringVar(&opts.Caption, "caption", `"<code>"+FileName+"</code> - <code>"+MIME+"</code>"`, "caption for the uploaded media")
+
+	// output flags
+	cmd.Flags().BoolVar(&opts.NoProgress, consts.FlagNoProgress, false, "disable interactive progress bars, use simple logging instead")
 
 	// completion and validation
 	_ = cmd.MarkFlagRequired(path)

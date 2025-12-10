@@ -13,6 +13,7 @@ import (
 	"github.com/gotd/td/telegram/message/entity"
 	"github.com/gotd/td/telegram/message/html"
 	"github.com/gotd/td/telegram/peers"
+	pw "github.com/jedib0t/go-pretty/v6/progress"
 
 	"github.com/iyear/tdl/core/uploader"
 	"github.com/iyear/tdl/core/util/mediautil"
@@ -46,7 +47,7 @@ type iter struct {
 	file uploader.Elem
 }
 
-func newIter(files []*File, to, caption *vm.Program, chat string, topic int, photo, remove bool, delay time.Duration, manager *peers.Manager) *iter {
+func newIter(files []*File, to, caption *vm.Program, chat string, topic int, photo, remove bool, delay time.Duration, manager *peers.Manager, pw pw.Writer) *iter {
 	return &iter{
 		files:   files,
 		to:      to,
