@@ -15,6 +15,7 @@ import (
 	"github.com/iyear/tdl/app/chat"
 	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
+	"github.com/iyear/tdl/pkg/consts"
 )
 
 var limiter = ratelimit.New(rate.Every(500*time.Millisecond), 2)
@@ -109,6 +110,9 @@ func NewChatExport() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Raw, "raw", false, "export raw message struct of Telegram MTProto API, useful for debugging")
 	cmd.Flags().BoolVar(&opts.All, "all", false, "export all messages including non-media messages, but still affected by filter and type flag")
 
+	// output flags
+	cmd.Flags().BoolVar(&opts.NoProgress, consts.FlagNoProgress, false, "disable interactive progress bars, use simple logging instead")
+
 	// completion and validation
 	_ = cmd.RegisterFlagCompletionFunc(input, func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		// if user has already input something, don't do anything
@@ -147,5 +151,9 @@ func NewChatUsers() *cobra.Command {
 	cmd.Flags().StringVarP(&opts.Output, "output", "o", "tdl-users.json", "output JSON file path")
 	cmd.Flags().StringVarP(&opts.Chat, "chat", "c", "", "domain id (channels, supergroups, etc.)")
 	cmd.Flags().BoolVar(&opts.Raw, "raw", false, "export raw message struct of Telegram MTProto API, useful for debugging")
+
+	// output flags
+	cmd.Flags().BoolVar(&opts.NoProgress, consts.FlagNoProgress, false, "disable interactive progress bars, use simple logging instead")
+
 	return cmd
 }
