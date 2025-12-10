@@ -16,6 +16,7 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
+	pw "github.com/jedib0t/go-pretty/v6/progress"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 
@@ -71,7 +72,7 @@ type iter struct {
 }
 
 func newIter(pool dcpool.Pool, manager *peers.Manager, dialog [][]*tmessage.Dialog,
-	opts Options, delay time.Duration,
+	opts Options, delay time.Duration, pw pw.Writer,
 ) (*iter, error) {
 	tpl, err := template.New("dl").
 		Funcs(tplfunc.FuncMap(tplfunc.All...)).

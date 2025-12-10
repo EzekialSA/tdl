@@ -10,6 +10,7 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram"
 	"github.com/gotd/td/telegram/peers"
+	pw "github.com/jedib0t/go-pretty/v6/progress"
 	"github.com/spf13/viper"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
@@ -45,6 +46,9 @@ type Options struct {
 	// serve
 	Serve bool
 	Port  int
+
+	// output mode
+	NoProgress bool // disable interactive progress bars
 }
 
 type parser struct {
@@ -75,7 +79,16 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 
 	manager := peers.Options{Storage: storage.NewPeers(kvd)}.Build(pool.Default(ctx))
 
-	it, err := newIter(pool, manager, dialogs, opts, viper.GetDuration(consts.FlagDelay))
+	// Choose progress writer based on --no-progress flag
+	var dlProgress pw.Writer
+	if opts.NoProgress {
+		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
+		dlProgress = prog.NewSimple(utils.Byte.FormatBinaryBytes)
+	} else {
+		dlProgress = prog.New(utils.Byte.FormatBinaryBytes)
+	}
+
+	it, err := newIter(pool, manager, dialogs, opts, viper.GetDuration(consts.FlagDelay), dlProgress)
 	if err != nil {
 		return err
 	}
@@ -97,7 +110,6 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		}
 	}()
 
-	dlProgress := prog.New(utils.Byte.FormatBinaryBytes)
 	dlProgress.SetNumTrackersExpected(it.Total())
 	prog.EnablePS(ctx, dlProgress)
 
