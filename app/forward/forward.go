@@ -19,6 +19,7 @@ import (
 	"github.com/iyear/tdl/app/internal/tctx"
 	"github.com/iyear/tdl/core/dcpool"
 	"github.com/iyear/tdl/core/forwarder"
+	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/tclient"
 	"github.com/iyear/tdl/core/util/tutil"
@@ -37,6 +38,9 @@ type Options struct {
 	DryRun bool
 	Single bool
 	Desc   bool
+
+	// output mode
+	NoProgress bool // disable interactive progress bars
 }
 
 func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Options) (rerr error) {
@@ -78,7 +82,15 @@ func Run(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Opti
 		return errors.Wrap(err, "resolve edit")
 	}
 
-	fwProgress := prog.New(pw.FormatNumber)
+	// Choose progress writer based on --no-progress flag
+	var fwProgress pw.Writer
+	if opts.NoProgress {
+		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
+		fwProgress = prog.NewSimple(pw.FormatNumber)
+	} else {
+		fwProgress = prog.New(pw.FormatNumber)
+	}
+
 	fwProgress.SetNumTrackersExpected(totalMessages(dialogs))
 	prog.EnablePS(ctx, fwProgress)
 
