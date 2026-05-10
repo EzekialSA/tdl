@@ -18,7 +18,6 @@ import (
 	"github.com/jedib0t/go-pretty/v6/progress"
 	"go.uber.org/multierr"
 
-	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/tmedia"
 	"github.com/iyear/tdl/core/util/tutil"
@@ -92,24 +91,25 @@ func Export(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts E
 	color.Cyan("Occasional suspensions are due to Telegram rate limitations, please wait a moment.")
 	fmt.Println()
 
+	peerName := fmt.Sprintf("%s-%d", peer.VisibleName(), peer.ID())
+
 	color.Blue("Type: %s | Input: %v", opts.Type, opts.Input)
 
-	// Choose progress writer based on --no-progress flag
 	var pw progress.Writer
+	var tracker *progress.Tracker
 	if opts.NoProgress {
-		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
-		pw = prog.NewSimple(progress.FormatNumber)
+		fmt.Printf("Exporting: %s...\n", peerName)
 	} else {
 		pw = prog.New(progress.FormatNumber)
+		pw.SetUpdateFrequency(200 * time.Millisecond)
+		pw.Style().Visibility.TrackerOverall = false
+		pw.Style().Visibility.ETA = false
+		pw.Style().Visibility.Percentage = false
+
+		tracker = prog.AppendTracker(pw, progress.FormatNumber, peerName, 0)
+
+		go pw.Render()
 	}
-	pw.SetUpdateFrequency(200 * time.Millisecond)
-	pw.Style().Visibility.TrackerOverall = false
-	pw.Style().Visibility.ETA = false
-	pw.Style().Visibility.Percentage = false
-
-	tracker := prog.AppendTracker(pw, progress.FormatNumber, fmt.Sprintf("%s-%d", peer.VisibleName(), peer.ID()), 0)
-
-	go pw.Render()
 
 	var q messages.Query
 	switch {
@@ -222,14 +222,20 @@ loop:
 		enc.Raw(mb)
 
 		count++
-		tracker.SetValue(count)
+		if tracker != nil {
+			tracker.SetValue(count)
+		}
 	}
 
 	if err = iter.Err(); err != nil {
 		return err
 	}
 
-	tracker.MarkAsDone()
-	prog.Wait(ctx, pw)
+	if opts.NoProgress {
+		fmt.Printf("Export complete: %s - %d messages\n", peerName, count)
+	} else {
+		tracker.MarkAsDone()
+		prog.Wait(ctx, pw)
+	}
 	return nil
 }
