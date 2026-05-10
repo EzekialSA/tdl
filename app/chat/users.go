@@ -18,7 +18,6 @@ import (
 	"github.com/jedib0t/go-pretty/v6/progress"
 	"go.uber.org/multierr"
 
-	"github.com/iyear/tdl/core/logctx"
 	"github.com/iyear/tdl/core/storage"
 	"github.com/iyear/tdl/core/util/tutil"
 	"github.com/iyear/tdl/pkg/prog"
@@ -73,20 +72,16 @@ func Users(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Us
 	defer enc.ObjEnd()
 	enc.Field("id", func(e *jx.Encoder) { e.Int64(peer.ID()) })
 
-	// Choose progress writer based on --no-progress flag
 	var pw progress.Writer
-	if opts.NoProgress {
-		logctx.From(ctx).Info("Using simple progress mode (--no-progress enabled)")
-		pw = prog.NewSimple(progress.FormatNumber)
-	} else {
+	if !opts.NoProgress {
 		pw = prog.New(progress.FormatNumber)
-	}
-	pw.SetUpdateFrequency(200 * time.Millisecond)
-	pw.Style().Visibility.TrackerOverall = false
-	pw.Style().Visibility.ETA = true
-	pw.Style().Visibility.Percentage = true
+		pw.SetUpdateFrequency(200 * time.Millisecond)
+		pw.Style().Visibility.TrackerOverall = false
+		pw.Style().Visibility.ETA = true
+		pw.Style().Visibility.Percentage = true
 
-	go pw.Render()
+		go pw.Render()
+	}
 
 	builder := func() *participants.GetParticipantsQueryBuilder {
 		return participants.NewQueryBuilder(c.API()).
@@ -104,16 +99,24 @@ func Users(ctx context.Context, c *telegram.Client, kvd storage.Storage, opts Us
 
 	for field, query := range fields {
 		iter := query.Iter()
-		if err = outputUsers(ctx, pw, peer, enc, field, iter, opts.Raw); err != nil {
+		if opts.NoProgress {
+			fmt.Printf("Exporting users: %s-%d-%s...\n", peer.VisibleName(), peer.ID(), field)
+		}
+		if err = outputUsers(ctx, pw, peer, enc, field, iter, opts.Raw, opts.NoProgress); err != nil {
 			// skip if we get CHAT_ADMIN_REQUIRED error, just export other fields
 			if tgerr.Is(err, tg.ErrChatAdminRequired) {
 				continue
 			}
 			return fmt.Errorf("failed to output %s: %w", field, err)
 		}
+		if opts.NoProgress {
+			fmt.Printf("Export complete: %s-%d-%s\n", peer.VisibleName(), peer.ID(), field)
+		}
 	}
 
-	prog.Wait(ctx, pw)
+	if pw != nil {
+		prog.Wait(ctx, pw)
+	}
 	return nil
 }
 
@@ -124,16 +127,20 @@ func outputUsers(ctx context.Context,
 	field string,
 	iter *participants.Iterator,
 	raw bool,
+	noProgress bool,
 ) error {
 	total, err := iter.Total(ctx)
 	if err != nil {
 		return errors.Wrap(err, "get total count")
 	}
 
-	tracker := prog.AppendTracker(pw,
-		progress.FormatNumber,
-		fmt.Sprintf("%s-%d-%s", peer.VisibleName(), peer.ID(), field),
-		int64(total))
+	var tracker *progress.Tracker
+	if pw != nil {
+		tracker = prog.AppendTracker(pw,
+			progress.FormatNumber,
+			fmt.Sprintf("%s-%d-%s", peer.VisibleName(), peer.ID(), field),
+			int64(total))
+	}
 
 	enc.FieldStart(field)
 	enc.ArrStart()
@@ -158,14 +165,18 @@ func outputUsers(ctx context.Context,
 
 		enc.Raw(buf)
 
-		tracker.Increment(1)
+		if tracker != nil {
+			tracker.Increment(1)
+		}
 	}
 
 	if err = iter.Err(); err != nil {
 		return err
 	}
 
-	tracker.MarkAsDone()
+	if tracker != nil {
+		tracker.MarkAsDone()
+	}
 	return nil
 }
 
