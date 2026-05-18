@@ -83,8 +83,9 @@ func collect(ctx context.Context, r io.Reader, peer peers.Peer, onlyMedia bool) 
 	d := jstream.NewDecoder(r, 2)
 
 	m := &Dialog{
-		Peer:     peer.InputPeer(),
-		Messages: make([]int, 0),
+		Peer:      peer.InputPeer(),
+		Messages:  make([]int, 0),
+		FileNames: make([]string, 0),
 	}
 
 	for mv := range d.Stream() {
@@ -111,6 +112,12 @@ func collect(ctx context.Context, r io.Reader, peer peers.Peer, onlyMedia bool) 
 			}
 
 			m.Messages = append(m.Messages, fm.ID)
+			// Store the filename from the export (File takes priority over Photo)
+			fileName := fm.File
+			if fileName == "" {
+				fileName = fm.Photo
+			}
+			m.FileNames = append(m.FileNames, fileName)
 		}
 	}
 

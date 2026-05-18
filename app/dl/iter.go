@@ -168,6 +168,39 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 		}
 	}()
 
+	// Early skip-same check: use filename from JSON export to avoid expensive API calls.
+	// If the file already exists on disk, skip without calling GetSingleMessage.
+	if i.opts.SkipSame {
+		fileName := ""
+		if i.messageIndex < len(i.dialogs[i.dialogIndex].FileNames) {
+			fileName = i.dialogs[i.dialogIndex].FileNames[i.messageIndex]
+		}
+		if fileName != "" {
+			// Try to reconstruct the expected output filename using the template
+			toName := bytes.Buffer{}
+			err := i.tpl.Execute(&toName, &fileTemplate{
+				DialogID:     tutil.GetInputPeerID(peer),
+				MessageID:    msg,
+				MessageDate:  0, // not available without API call
+				FileName:     fileName,
+				FileCaption:  "",
+				FileSize:     "",
+				DownloadDate: time.Now().Unix(),
+			})
+			if err == nil && toName.Len() > 0 {
+				targetPath := filepath.Join(i.opts.Dir, toName.String())
+				if stat, statErr := os.Stat(targetPath); statErr == nil && stat.Size() > 0 {
+					logctx.From(ctx).Debug("skip-same: file exists (early check)",
+						zap.String("file", toName.String()),
+						zap.Int64("size", stat.Size()),
+					)
+					i.logicalPos++
+					return false, true
+				}
+			}
+		}
+	}
+
 	from, err := i.manager.FromInputPeer(ctx, peer)
 	if err != nil {
 		i.err = errors.Wrap(err, "resolve from input peer")
