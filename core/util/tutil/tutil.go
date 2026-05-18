@@ -180,7 +180,11 @@ func GetSingleMessage(ctx context.Context, c *tg.Client, peer tg.InputPeerClass,
 		BatchSize(1).Iter()
 
 	if !it.Next(ctx) {
-		return nil, errors.Wrap(it.Err(), "get single message")
+		if err := it.Err(); err != nil {
+			return nil, errors.Wrap(err, "get single message")
+		}
+		// API returned no messages — the message no longer exists
+		return nil, fmt.Errorf("the message %d/%d: %w", GetInputPeerID(peer), msg, ErrMessageDeleted)
 	}
 
 	m, ok := it.Value().Msg.(*tg.Message)
