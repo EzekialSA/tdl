@@ -175,11 +175,13 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 		if i.messageIndex < len(i.dialogs[i.dialogIndex].FileNames) {
 			fileName = i.dialogs[i.dialogIndex].FileNames[i.messageIndex]
 		}
+		dialogID := tutil.GetInputPeerID(peer)
+
 		if fileName != "" {
 			// Try to reconstruct the expected output filename using the template
 			toName := bytes.Buffer{}
 			err := i.tpl.Execute(&toName, &fileTemplate{
-				DialogID:     tutil.GetInputPeerID(peer),
+				DialogID:     dialogID,
 				MessageID:    msg,
 				MessageDate:  0, // not available without API call
 				FileName:     fileName,
@@ -190,8 +192,26 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 			if err == nil && toName.Len() > 0 {
 				targetPath := filepath.Join(i.opts.Dir, toName.String())
 				if stat, statErr := os.Stat(targetPath); statErr == nil && stat.Size() > 0 {
-					logctx.From(ctx).Debug("skip-same: file exists (early check)",
+					logctx.From(ctx).Debug("skip-same: file exists (early check, exact)",
 						zap.String("file", toName.String()),
+						zap.Int64("size", stat.Size()),
+					)
+					i.logicalPos++
+					return false, true
+				}
+			}
+		}
+
+		// Fallback: even without a filename (e.g. photos), check if any file
+		// matching the DialogID_MessageID pattern exists in the output directory.
+		// The default template is: {{ .DialogID }}_{{ .MessageID }}_{{ filenamify .FileName }}
+		pattern := filepath.Join(i.opts.Dir, fmt.Sprintf("%d_%d_*", dialogID, msg))
+		if matches, _ := filepath.Glob(pattern); len(matches) > 0 {
+			for _, match := range matches {
+				if stat, statErr := os.Stat(match); statErr == nil && stat.Size() > 0 &&
+					!filepath.IsAbs(tempExt) && filepath.Ext(match) != tempExt {
+					logctx.From(ctx).Debug("skip-same: file exists (early check, glob)",
+						zap.String("file", filepath.Base(match)),
 						zap.Int64("size", stat.Size()),
 					)
 					i.logicalPos++
