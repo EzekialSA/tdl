@@ -42,21 +42,28 @@ func (d *Downloader) Download(ctx context.Context, limit int) error {
 
 		wg.Go(func() (rerr error) {
 			d.opts.Progress.OnAdd(elem)
-			defer func() { d.opts.Progress.OnDone(elem, rerr) }()
+			// Use a separate variable so OnDone always receives the actual download error
+			// for proper cleanup (e.g. removing 0-byte files on failure).
+			var downloadErr error
+			defer func() {
+				d.opts.Progress.OnDone(elem, downloadErr)
+			}()
 
-			if err := d.download(wgctx, elem); err != nil {
+			downloadErr = d.download(wgctx, elem)
+			if downloadErr != nil {
 				// canceled by user, so we directly return error to stop all
-				if errors.Is(err, context.Canceled) {
-					return errors.Wrap(err, "download")
+				if errors.Is(downloadErr, context.Canceled) {
+					return errors.Wrap(downloadErr, "download")
 				}
 
-				// don't return error, just log it
+				// don't return error to errgroup, just log it
 				logctx.
 					From(ctx).
 					Error("Download error",
 						zap.Any("element", elem),
-						zap.Error(err),
+						zap.Error(downloadErr),
 					)
+				return nil
 			}
 
 			return nil
