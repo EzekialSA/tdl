@@ -16,6 +16,7 @@ import (
 	"github.com/go-faster/errors"
 	"github.com/gotd/td/telegram/peers"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 	"go.uber.org/atomic"
 	"go.uber.org/zap"
 
@@ -184,6 +185,20 @@ func (i *iter) process(ctx context.Context) (ret bool, skip bool) {
 			i.skippedDeleted.Inc()                                                                     // increment skipped deleted counter
 			i.deletedIDs = append(i.deletedIDs, fmt.Sprintf("%d/%d", tutil.GetInputPeerID(peer), msg)) // track deleted message ID
 			i.logicalPos++                                                                             // increment logical position for skipped message
+			return false, true
+		}
+		// Check if the channel/chat is inaccessible (banned, deleted, private, etc.)
+		// Skip all remaining messages for this dialog rather than failing the entire download.
+		if isChannelInaccessibleError(err) {
+			logctx.From(ctx).Warn("Channel/chat is inaccessible, skipping remaining messages in dialog",
+				zap.Int64("dialog_id", tutil.GetInputPeerID(peer)),
+				zap.Int("message_id", msg),
+				zap.Error(err),
+			)
+			// Skip all remaining messages for this dialog by advancing past them
+			remaining := len(i.dialogs[i.dialogIndex].Messages) - i.messageIndex
+			i.logicalPos += remaining
+			i.messageIndex = len(i.dialogs[i.dialogIndex].Messages) - 1 // defer will increment past end
 			return false, true
 		}
 		i.err = errors.Wrap(err, "resolve message")
@@ -412,6 +427,19 @@ func sortDialogs(dialogs []*tmessage.Dialog, desc bool) {
 // 	}
 // 	return sum
 // }
+
+// isChannelInaccessibleError checks if an error indicates the channel/chat
+// is inaccessible (banned, deleted, private, deactivated, etc.)
+// Errors sourced from gotd/td documentation for messages.getHistory.
+func isChannelInaccessibleError(err error) bool {
+	inaccessibleErrors := []string{
+		"CHANNEL_PRIVATE",  // 406: You haven't joined this channel/supergroup.
+		"CHANNEL_INVALID",  // 400: The provided channel is invalid.
+		"CHAT_ID_INVALID",  // 400: The provided chat id is invalid.
+		"PEER_ID_INVALID",  // 400: The provided peer id is invalid.
+	}
+	return tgerr.Is(err, inaccessibleErrors...)
+}
 
 func fingerprint(dialogs []*tmessage.Dialog) string {
 	endian := binary.BigEndian
